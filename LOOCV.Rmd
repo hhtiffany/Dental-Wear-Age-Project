@@ -1,6 +1,5 @@
 ---
 title: "Dental and Age"
-author: "Tianwen Huan, Xin Chang, Qiuyuan Qin"
 date: "11/2/2016"
 output: pdf_document
 ---
