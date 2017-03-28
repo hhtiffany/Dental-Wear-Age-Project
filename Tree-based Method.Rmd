@@ -1,0 +1,165 @@
+---
+title: "Tree-based Method"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width=8,fig.height=6, warning = FALSE, fig.align='center')
+library(tree)
+library(randomForest)
+library(MASS)
+library(RColorBrewer)
+library(plotly)
+library(ggplot2)
+library(ISLR)
+library(gbm)
+library(class)
+```
+
+y = 13.247 + 0.312(Yun2) + 0.879(Yun3) + -0.302(t4) + 0.200 (t5) + -0.835(t6) +-1.368(t7) + -0.541(t8) + 2.041(t9) + 1.462(t10) + 0.600(t11) + -0.052(t12) + 0.281(t13) + 0.124(Yun14) + -0.156(Yun15) + 0.283(Yun18) + 0.657(Yun19) + 0.425(t20) + 0.251(t21) + -0.115(t22) + -0.319(t23) + 1.668(t24) + -0.973(t25) + 0.651 (t26) + 0.741(t27) + 0.152(t28) + 0.491(t29) + 0.453(Yun30) + 0.245(Yun31)
+
+R = 0.828
+R2 = 0.686
+
+Significant variables: Yun3, t6, t7, t9, t10, t11, Yun19, Yun20, t24, t29, Yun30
+
+```{r}
+data <- read.csv("~/Documents/BU/2016 fall/MA 675 STAT PRAC 1/consulting/Dental & Age/data/Faillace - for Stats Consulting.csv")
+teeth <- data[c(1:583),]
+teeth <- teeth[-c( 427, 143, 78, 236, 307, 363, 373, 114, 361, 144, 131, 95, 13, 126, 22, 9, 124, 461, 7, 6, 438, 344, 5, 107, 226, 199, 343, 240, 531, 244),-c(1)]
+teeth <-subset(teeth, !is.na(teeth$Age))
+```
+
+```{r}
+teeth1=na.omit(teeth)
+```
+
+
+```{r}
+set.seed(1)
+train = sample(1:nrow(teeth1), nrow(teeth1)/2)
+ttrain = teeth1[train,]
+ttest = teeth1[-train,]
+```
+
+Tree based method is attractive because of the ease of interpretability.
+
+### tree & prune tree
+```{r, fig.width=8,fig.height=8}
+tree.teeth = tree(Age~., ttrain)
+plot(tree.teeth)
+text(tree.teeth,pretty=0)
+mean((predict(tree.teeth,ttest)-ttest$Age)^2)
+
+set.seed(11)
+cv.teeth = cv.tree(tree.teeth, FUN = prune.tree)
+plot(cv.teeth$size,cv.teeth$dev,type='b')
+
+prune.teeth = prune.tree(tree.teeth,best=10)
+# plot(prune.Carseats)
+# text(prune.Carseats,pretty=0)
+mean((predict(prune.teeth,ttest)-ttest$Age)^2)
+plot(prune.teeth)
+text(prune.teeth,pretty=0)
+```
+
+
+### bagging & random forest
+```{r}
+xtrain = ttrain[, -1]
+xtest = ttest[, -1]
+ytrain = ttrain[, 1]
+ytest = ttest[, 1]
+
+testerrors=data.frame("ntree"=rep(1:500,28), 
+                      "mtry"=rep(c(1:28), each=500),
+                      "TestError"=NA)
+
+for (i in 1:28) {
+  m = randomForest(xtrain, ytrain, xtest = xtest, ytest = ytest, 
+    mtry = i, ntree = 500)
+  testerrors[(i*500-499):(i*500),3]=m$test$mse
+}
+
+testerrors$mtry <- as.factor(testerrors$mtry)
+```
+
+```{r}
+p <- ggplot(data = testerrors,
+       aes(x = ntree, y = TestError, group = mtry, colour = mtry)) +
+  geom_line(size=0.8) + 
+  theme(plot.title = element_text(size=15, face="bold", vjust=2),
+        axis.text.x=element_text(size=10, vjust=0.35)) +
+  labs(title = "Test Errors for Random Forests") + 
+  xlab("Number of Trees") + ylab("Test Errors") +
+  scale_colour_brewer(palette = "Paired")
+gg <- ggplotly(p) 
+layout(gg)
+```
+
+* 96/97 a little bit smaller than tree and prune tree
+
+
+### Generalized Boosted Regression 
+However, the trees are not the best model in terms of prediction.  Improved version of the tree gives more accurate prediction with the cost of loosing clear interpretation.
+
+```{r}
+boost.teeth=gbm(Age~.,
+                 data=teeth1,
+                 distribution="gaussian",
+                 n.trees=5000,
+                 interaction.depth=4,
+                 shrinkage=0.2,
+                 cv.folds=10,
+                 verbose=F)
+```
+
+```{r}
+gbm.perf(boost.teeth, method="OOB")
+
+# right?
+boost.pred = predict(boost.teeth, ttest, n.trees=66)
+mean((boost.pred-ttest$Age)^2)
+```
+
+
+```{r}
+best.iter <- gbm.perf(boost.teeth,method="OOB",plot.it=FALSE)
+print(best.iter)
+summary(boost.teeth,n.trees=best.iter) # based on the estimated best number of trees
+
+best.iter <- gbm.perf(boost.teeth,method="cv",plot.it=FALSE)
+print(best.iter)
+summary(boost.teeth,n.trees=best.iter) # based on the estimated best number of trees
+
+plot.gbm.tree<-function(object,n.trees = NULL) {
+  summary.object<-summary(object,plotit=FALSE,n.trees=n.trees)
+  reorder_size <- function(x) {
+    factor(x, levels = names(sort(table(x))))
+  }
+  dttmp<-summary.object
+  dttmp$variables <- factor(dttmp$var, 
+                            levels = dttmp$var[order(dttmp$rel.inf)])
+  colourCount = length(dttmp$variables)
+  color_levels<-colorRampPalette(brewer.pal(9, "Blues"))(colourCount)
+  gp<- ggplot(dttmp) + geom_bar() + 
+  aes( x=variables, weight = rel.inf , fill=variables)+
+  ylab("Relative influence")+ coord_flip()+
+   scale_fill_manual(values = color_levels )+ theme(legend.position="none")
+  print(gp)
+}
+plot.gbm.tree(boost.teeth, best.iter) 
+yhat.boost=predict(boost.teeth,newdata=teeth1,n.trees=best.iter) 
+plot(teeth1$Age,yhat.boost)
+```
+
+
+```{r,fig.width=8,fig.height=8}
+par(mfrow=c(2,2))
+plot(boost.teeth,i="X24")
+plot(boost.teeth,i="X9")
+plot(boost.teeth,i="Yun.31")
+plot(boost.teeth,i="X11")
+```
+
+

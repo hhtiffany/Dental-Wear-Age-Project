@@ -1,0 +1,100 @@
+---
+title: "Dental and Age"
+author: "Tianwen Huan, Xin Chang, Qiuyuan Qin"
+date: "11/2/2016"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(leaps)
+library(pls)
+library(knitr)
+library(data.table)
+```
+
+## 1. Selecting the data
+
+We used the "Faillace - for Stats Consulting" data you sent us. First, we choose the 1 to 583 observations and then move the ouliers you marked. After, we remove the rows which age column has NA. Finally we got 542 observations.
+
+* We noticed that there is a "3%" instead of 3 in the X23 column and we change it to 3.
+```{r}
+data <- read.csv("~/Documents/BU/2016 fall/MA 675 STAT PRAC 1/consulting/Dental & Age/data/Faillace - for Stats Consulting.csv")
+teeth <- data[c(1:583),]
+teeth <- teeth[-c( 427, 143, 78, 236, 307, 363, 373, 114, 361, 144, 131, 95, 13, 
+                   126, 22, 9, 124, 461, 7, 6, 438, 344, 5, 107, 226, 199, 343, 
+                   240, 531, 244),-c(1)]
+teeth <-subset(teeth, !is.na(teeth$Age))
+```
+
+
+
+## 2. Fit model
+
+We used lm() command in r to fit the linear model. The result shows that significant variables are Yun.3, X7, X9, X11, Yun.19, X20, X24, X27, Yun.31.
+
+```{r}
+rgt <- lm(Age~., data = teeth)
+summary(rgt) # 3,7,9,11,19,20,24,27,31
+```
+
+
+
+## 3. LOOCV selection 
+
+Then we wrote the LOOCV functions to calculate the mean square test errors for each best subsets. The number of variables of these subsets range from 1 to 28. The plot below shows the minmum MSE occurred at point 22, which means the subsets with 22 variables has the minmum MSE. The plot also shows that, MSE for subsets with 13, 14, 15, 16, 21 and 22 variables are all very small. 
+
+```{r}
+predict.regsubsets =function (object ,newdata ,id ,...){
+  form=as.formula (object$call [[2]])
+  mat=model.matrix (form ,newdata )
+  coefi =coef(object ,id=id)
+  xvars =names (coefi )
+  mat[,xvars ]%*% coefi
+  }
+```
+
+
+```{r}
+folds=1:nrow(teeth)
+cv.errors =matrix(NA, nrow(teeth), 28, dimnames=list(NULL, paste (1:28)))
+
+# long time loops (8-10 mins)
+for(j in 1:542){
+  best.fit =regsubsets(Age~.,data=teeth[folds!=j,], nvmax=28)
+  for(i in 1:28) {
+    pred=predict(best.fit, teeth[folds==j,], id=i)
+    cv.errors[j,i]=mean((teeth$Age[folds==j]-pred)^2)
+  }}
+cv.errors[is.nan(cv.errors)] <- NA
+mean.cv.errors=apply(cv.errors, 2, mean, na.rm=T)
+
+save(mean.cv.errors, file= "mean.cv.errors.Rdata")
+```
+
+
+```{r}
+plot(mean.cv.errors ,type='b', xlab = "Number of Variables")
+title("LOOCV Test Errors")
+points (22, mean.cv.errors[22], col ="red",cex =2, pch =20)
+# which.min(mean.cv.errors)
+# mean.cv.errors
+# mean.cv.errors[22]
+```
+
+
+
+The variables of the subsets with 22 and 13 variables have been shown below.
+
+```{r}
+reg.best=regsubsets(Age~.,data=teeth, nvmax=28)
+# coef(reg.best ,13) # 6,10, ->    8,27,28,31
+# coef(reg.best ,11) # 6,7,10,30  ->  8,27,28,31
+# coef(reg.best ,22)
+
+kable(data.table(names(coef(reg.best ,22))[-1], coef(reg.best ,22)[-1]),
+      col.names = c("Variables","Coefficient"))
+kable(data.table(names(coef(reg.best ,13))[-1], coef(reg.best ,13)[-1]),
+      col.names = c("Variables","Coefficient"))
+```
+

@@ -1,0 +1,145 @@
+---
+title: "Result of Tree-based Method"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, fig.align='center')
+library(tree)
+library(randomForest)
+library(MASS)
+library(RColorBrewer)
+library(plotly)
+library(ggplot2)
+library(ISLR)
+library(gbm)
+library(class)
+```
+
+```{r}
+# y = 13.247 + 0.312(Yun2) + 0.879(Yun3) + -0.302(t4) + 0.200 (t5) + -0.835(t6) +-1.368(t7) + -0.541(t8) + 2.041(t9) + 1.462(t10) + 0.600(t11) + -0.052(t12) + 0.281(t13) + 0.124(Yun14) + -0.156(Yun15) + 0.283(Yun18) + 0.657(Yun19) + 0.425(t20) + 0.251(t21) + -0.115(t22) + -0.319(t23) + 1.668(t24) + -0.973(t25) + 0.651 (t26) + 0.741(t27) + 0.152(t28) + 0.491(t29) + 0.453(Yun30) + 0.245(Yun31)
+# 
+# R = 0.828
+# R2 = 0.686
+# 
+# Significant variables: Yun3, t6, t7, t9, t10, t11, Yun19, Yun20, t24, t29, Yun30
+```
+
+
+```{r}
+data <- read.csv("~/Documents/BU/2016 fall/MA 675 STAT PRAC 1/consulting/Dental & Age/data/Faillace - for Stats Consulting.csv")
+teeth <- data[c(1:583),]
+teeth <- teeth[-c( 427, 143, 78, 236, 307, 363, 373, 114, 361, 144, 131, 95, 13, 126, 22, 9, 124, 461, 7, 6, 438, 344, 5, 107, 226, 199, 343, 240, 531, 244),-c(1)]
+teeth <-subset(teeth, !is.na(teeth$Age))
+
+# For Tree-Based Method we need to remove the NA data
+teeth1=na.omit(teeth)
+```
+
+
+## 1. Tree-Based Method
+
+For tree-based method, we need to remove all the observations that contain NA. Thus the final dataset we used for tree-based method contains only 346 observations. The following two parts briefly interpreted the result of regression trees and the result of generalized boosted regression separately.
+
+## 1.1 Regression Trees 
+
+```{r}
+# Step.1 select the training dataset and test dataset
+set.seed(1)
+train = sample(1:nrow(teeth1), nrow(teeth1)/2)
+ttrain = teeth1[train,]
+ttest = teeth1[-train,]
+```
+
+```{r, fig.width=7,fig.height=6}
+# Step.2 fit original tree
+tree.teeth = tree(Age~., ttrain)
+### plot(tree.teeth)
+### text(tree.teeth,pretty=0)
+### mean((predict(tree.teeth,ttest)-ttest$Age)^2)  # Test MSE of original tree
+
+# Step.3 use the cv.tree() function to see whether pruning the tree will improve performance
+set.seed(11)
+cv.teeth = cv.tree(tree.teeth, FUN = prune.tree)
+### plot(cv.teeth$size,cv.teeth$dev,type='b')
+
+# Step.4 prune the tree based on the cv result
+prune.teeth = prune.tree(tree.teeth,best=10)
+### mean((predict(prune.teeth,ttest)-ttest$Age)^2)  # Test MSE of pruned tree (improved a little bit)
+```
+
+Tree based method is attractive because of the ease of interpretability. The test MSE in this case is `r mean((predict(prune.teeth,ttest)-ttest$Age)^2)`. Figures 1 below displays the results of fitting and pruning a regression tree on the Teeth data, using nine of the features. The tree indicates that lower values of X11 correspond to young aged people. The tree predicts a person's age of 66.8 when the value of X11 is biger than 2.5, the value of X9 is bigger than 3.5 and the value of X29 is bigger than 7.5 (X11>2.5, X9>3.5 and X29>7.5).
+
+```{r}
+# Step.5 plot the final result
+plot(prune.teeth)
+text(prune.teeth,pretty=0)
+title("Figure.1 Regression Tree Analysis for Teeth",
+      cex.main = 0.8)
+```
+
+
+
+## 1.2 Generalized Boosted Regression 
+
+```{r}
+# Step.1 fit model
+boost.teeth=gbm(Age~.,
+                 data=teeth1,
+                 distribution="gaussian",
+                 n.trees=5000, # indicates that we want 5000 trees
+                 interaction.depth=4, # limits the depth of each tree
+                 shrinkage=0.2,
+                 cv.folds=10,
+                 verbose=F)
+```
+
+```{r}
+# Step.2  choose the best n.tree
+best.iter <- gbm.perf(boost.teeth,method="OOB",plot.it=FALSE)
+
+# Step.3 calculate the test MSE
+boost.pred = predict(boost.teeth, ttest, n.trees=best.iter )
+### mean((boost.pred-ttest$Age)^2)
+```
+
+
+However, the trees are not the best model in terms of prediction. Improved version of the tree gives more accurate prediction with the cost of loosing clear interpretation. The test MSE of boosting regression in this case is only `r mean((boost.pred-ttest$Age)^2)`, much better than all the other methods.
+
+The boosting regression produces a relative importance plot (Figure 2) of each variable. From the plot, we could find that there are four teeth that have obvious higher importance than other teeth, which means that these four teeth play an important role in deciding the response. In our case, we may conclude that the weariness of these four teeth could represent the age of a person. this result is very meaningful for some conditions, for instance, when we have limited information of several teeth rather the whole mouth.
+
+
+```{r, fig.width=7,fig.height=5}
+# Step.4 Plot the results
+plot.gbm.tree<-function(object,n.trees = NULL) {
+  summary.object<-summary(object,plotit=FALSE,n.trees=n.trees)
+  reorder_size <- function(x) {
+    factor(x, levels = names(sort(table(x))))
+  }
+  dttmp<-summary.object
+  dttmp$variables <- factor(dttmp$var, 
+                            levels = dttmp$var[order(dttmp$rel.inf)])
+  colourCount = length(dttmp$variables)
+  color_levels<-colorRampPalette(brewer.pal(9, "Blues"))(colourCount)
+  gp<- ggplot(dttmp) + geom_bar() + 
+  aes( x=variables, weight = rel.inf , fill=variables)+
+    ggtitle("Figure.2 Relative influence of Each Variable")+
+  ylab("Relative influence")+ coord_flip()+
+   scale_fill_manual(values = color_levels )+ theme(legend.position="none")
+  print(gp)
+}
+plot.gbm.tree(boost.teeth, best.iter) 
+```
+
+ 
+```{r,fig.width=8,fig.height=6}
+par(mfrow=c(2,2))
+plot(boost.teeth,i="X24")
+title("Figure.3 Partial Dependence Plots")
+plot(boost.teeth,i="X11")
+plot(boost.teeth,i="X9")
+plot(boost.teeth,i="Yun.31")
+```
+
+
+We can also look at the partial dependence plots above for these four variables. The plot shows that the marginal effect of the selected tooth on age after integrating out the other variables. Not surprisingly, all four teeth have positive effect on the age, that is to say, the weariness of these four teeth increase as the age increases. We also could see that there is a sharp increase for X24, Yun31, X4, the sharp increase means the when the weariness of this tooth increase even little bit, age will increase a lot. It may illustrate that the weariness of this teeth at this range are thresholds for human beings from young to old. This conclusion consists with our previous relative importance results, that is to say, when we only look at the weariness of these four teeth, we could gain a relative reliable results of the age of a person.
